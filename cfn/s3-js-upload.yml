@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  S3BucketNameUpload:
+    Type: String
+    Default: js-album-upload-bucket
+    Description: S3 BucketName for Upload
+  S3BucketNameWebsite:
+    Type: String
+    Default: js-album-website
+    Description: S3 BucketName for Website
+  SourceIp:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: Allow S3 Bucket IpAddress ex. 10.0.48.0/32
+
+Resources:
+  # S3 Bucket (Upload)
+  S3BucketUpload:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketNameUpload
+      AccessControl: PublicRead
+      CorsConfiguration:
+        CorsRules:
+        - AllowedOrigins: ['*']
+          AllowedMethods: [POST, GET, PUT, DELETE, HEAD]
+          AllowedHeaders: ['*']
+
+  # S3 Bucket (Website)
+  S3BucketWebsite:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketNameWebsite
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: "index.html"
+
+  # IAM Role
+  UnauthenticatedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Federated: cognito-identity.amazonaws.com
+          Action: sts:AssumeRoleWithWebIdentity
+          Condition:
+            StringEquals:
+              cognito-identity.amazonaws.com:aud: !Ref CognitoIdentityPool
+            ForAnyValue:StringLike:
+              cognito-identity.amazonaws.com:amr: unauthenticated
+      Policies: 
+        - PolicyName: "Allow-S3-Policy"
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - !Sub arn:aws:s3:::${S3BucketUpload}/*
+                Condition:
+                  IpAddress:
+                    aws:SourceIp:
+                      - !Ref SourceIp
+        - PolicyName: "CognitoRole"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - Effect: "Allow"
+                Action:
+                  - mobileanalytics:PutEvents
+                  - cognito-sync:*
+                Resource: '*' 
+
+  # Cognite ID pool
+  CognitoIdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      AllowUnauthenticatedIdentities: true
+
+  CognitoIdentityPoolRoleAttachment:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref CognitoIdentityPool
+      Roles:
+        unauthenticated: !GetAtt [UnauthenticatedRole, Arn]
+
+Outputs:
+  WebsiteURL:
+    Value: !GetAtt [S3BucketWebsite, WebsiteURL]
+    Description: URL for website hosted on S3
+  CognitoIdentityPool:
+    Value: !Ref CognitoIdentityPool
+    Description: Cognito IdentityPool Id
+  UploadBucketName:
+    Value: !Ref S3BucketUpload
+    Description: Upload BucketName
+  WebsiteBucketName:
+    Value: !Ref S3BucketWebsite
+    Description: Website BucketName
